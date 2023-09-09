@@ -114,6 +114,15 @@ pub mod freemind_handler {
         }
     }
 
+    impl AppElement {
+        pub fn title(&self) -> &str {
+            &self.title
+        }
+        pub fn description(&self) -> &str {
+            &self.description
+        }
+    }
+
     #[derive(Debug, Clone)]
     pub struct FreemindState {
         config: FreemindConfig,

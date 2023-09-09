@@ -249,7 +249,19 @@ async fn main() {
     let elements = op.fmstate.elements();
     let count = elements.len();
 
-    let message = format!("Hey {}! You have {} events due today.", op.username, count);
+    let mut i: u8 = 0;
+    let mut event_list = String::new();
+    elements.iter().for_each(|e| {
+        i+=1;
+        event_list.push_str(format!("Number {}: {} - {}.\n ", i, e.title(), e.description()).as_str())
+    });
+
+    let message = format!(
+        "Hey {}! You have {} events due today.\n {}",
+        op.username,
+        count,
+        event_list,
+    );
 
     op.fetch_tts_and_save(message).await.unwrap();
     op.play_file("tts.mp3".to_string()).await;
