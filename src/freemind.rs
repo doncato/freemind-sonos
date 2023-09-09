@@ -40,15 +40,37 @@ pub mod freemind_handler {
     }
 
     #[derive(Serialize, Deserialize)]
+    #[serde(rename = "part")]
     struct Part {
-        #[serde(rename = "entry")]
-        entries: Vec<AppElement>,
+        #[serde(rename = "meta")]
+        metadata: Meta,
+        #[serde(rename = "data")]
+        data: Data,
     }
 
     #[derive(Serialize, Deserialize)]
     struct Registry {
         #[serde(rename = "entry")]
         entries: Vec<AppElement>,
+    }
+
+    #[derive(Serialize, Deserialize)]
+    #[serde(rename = "data")]
+    struct Data {
+        #[serde(rename = "entry")]
+        entries: Vec<AppElement>,
+    }
+
+    #[derive(Serialize, Deserialize)]
+    #[serde(rename = "meta")]
+    struct Meta {
+        #[serde(rename = "existing_ids")]
+        existing_ids: Vec<AppId>,
+    }
+
+    #[derive(Serialize, Deserialize)]
+    struct AppId {
+        id: Vec<u16>,
     }
 
     #[derive(Debug, Clone, Serialize, Deserialize)]
@@ -191,7 +213,7 @@ pub mod freemind_handler {
                 let txt = res.text().await?;
 
                 let fetched_part: Part = from_str(&txt).unwrap();
-                self.elements = fetched_part.entries;
+                self.elements = fetched_part.data.entries;
 
                 self.sort_by_due();
             }

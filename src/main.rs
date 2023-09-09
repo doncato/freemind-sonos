@@ -244,7 +244,7 @@ async fn main() {
 
     op.play_file("sounds/tone/startup.ogg".to_string()).await;
 
-    op.fmstate.fetch().await.unwrap();
+    op.fmstate.today().await.unwrap();
 
     let elements = op.fmstate.elements();
     let count = elements.len();
