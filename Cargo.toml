@@ -15,9 +15,10 @@ ipnetwork = "0.18"
 log = "0.4"
 pnet = "0.29"
 quick-xml = { version = "0.27", features = ["async-tokio", "serialize"] }
-reqwest = "0.11"
+rand = "0.8"
+reqwest = { version = "0.11", features = ["json"] }
 serde = { version = "1.0", features = ["derive"] }
 serde_json = "1.0"
-sonor = "1.1"
+sonor = "2"
 tokio = { version = "1.17", features = ["full"] }
 url = "2.4"

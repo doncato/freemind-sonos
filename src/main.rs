@@ -1,11 +1,12 @@
 mod speaker;
-pub use crate::speaker::box_controller::{SpeakerBox};
+pub use crate::speaker::box_controller::SpeakerBox;
 
 mod freemind;
-pub use crate::freemind::freemind_handler::{FreemindConfig};
+pub use crate::freemind::freemind_handler::FreemindConfig;
 
 mod content;
 pub use crate::content::speech::{get_date, get_speech_voicerss};
+pub use crate::content::music::{JellyfinConfig, get_random_jellyfin_track};
 
 use freemind::freemind_handler::FreemindState;
 use sonor::{args, rupnp::ssdp::URN, Speaker};
@@ -16,11 +17,13 @@ use log::LevelFilter;
 use pnet::datalink::interfaces;
 use serde::{Deserialize, Serialize};
 use serde_json;
+use tokio::time::sleep_until;
 use std::fmt;
 use std::net::Ipv4Addr;
 use std::path::PathBuf;
 use std::fs::File;
 use std::io::Write;
+use tokio::time::{Duration, Instant};
 use tokio;
 
 
@@ -34,6 +37,7 @@ struct Config {
     path: PathBuf,
     tts_api_key: String,
     freemind: FreemindConfig,
+    jellyfin: JellyfinConfig,
     speaker: SpeakerBox,
 }
 impl ::std::default::Default for Config {
@@ -45,6 +49,7 @@ impl ::std::default::Default for Config {
             path: PathBuf::from("./media"),
             tts_api_key: "YOUR TTS API KEY".to_string(),
             freemind: FreemindConfig::default(),
+            jellyfin: JellyfinConfig::default(),
             speaker: SpeakerBox::default(),
         }
     }
@@ -78,16 +83,18 @@ struct AppState {
     spk: Speaker,
     tts_api_key: String,
     fmstate: FreemindState,
+    jellyfin: JellyfinConfig,
 }
 impl AppState {
-    fn new(username: String, server: String, path: PathBuf, spk: Speaker, tts_api_key: String, fmconf: FreemindConfig) -> Self {
+    fn new(username: String, server: String, path: PathBuf, spk: Speaker, tts_api_key: String, fmconf: FreemindConfig, jellyfin: JellyfinConfig) -> Self {
         Self {
             username,
             server,
             path,
             spk,
             tts_api_key,
-            fmstate: FreemindState::new(fmconf)
+            fmstate: FreemindState::new(fmconf),
+            jellyfin,
         }
     }
 
@@ -100,11 +107,40 @@ impl AppState {
         Ok(())
     }
 
+    async fn play_uri(&self, uri: String) {
+        let result = self.spk.action(
+            AV_TRANSPORT,
+            "SetAVTransportURI",
+            args! {"InstanceID": "0", "CurrentURI": uri.as_str(), "CurrentURIMetaData": ""},
+        ).await;
+
+        if result.is_ok() && (!self.spk.is_playing().await.unwrap_or(false)) {
+            self.spk.play().await.unwrap()
+        }
+    }
+
+    async fn get_duration(&self) -> Option<u32> {
+        return Some(0);
+    }
+
     async fn play_file(&self, file: String) {
         let uri = format!("{}{}", self.server, file).replace(" ", "%20");
         let result = self.spk.action(
             AV_TRANSPORT,
             "SetAVTransportURI",
+            args! {"InstanceID": "0", "CurrentURI": uri.as_str(), "CurrentURIMetaData": ""},
+        ).await;
+
+        if result.is_ok() && (!self.spk.is_playing().await.unwrap_or(false)) {
+            self.spk.play().await.unwrap()
+        }
+    }
+
+    async fn play_file_next(&self, file: String) {
+        let uri = format!("{}{}", self.server, file).replace(" ", "%20");
+        let result = self.spk.action(
+            AV_TRANSPORT,
+            "SetNextAVTransportURI",
             args! {"InstanceID": "0", "CurrentURI": uri.as_str(), "CurrentURIMetaData": ""},
         ).await;
 
@@ -216,7 +252,8 @@ async fn init<'a>(log_level: LevelFilter) -> AppState {
         path.to_path_buf(),
         cfg.to_speaker().await.unwrap(),
         cfg.tts_api_key,
-        cfg.freemind
+        cfg.freemind,
+        cfg.jellyfin,
     )
 }
 
@@ -242,7 +279,15 @@ async fn main() {
     log::info!("Initialized.");
     log::debug!("Connected to {:#?} Speaker", op.spk);
 
-    op.play_file("sounds/tone/startup.ogg".to_string()).await;
+    if let Some(title) = get_random_jellyfin_track(&op.jellyfin).await.unwrap_or(None) {
+        op.play_uri(format!("https://venture.zossennews.de/media/Audio/{}/stream.mp3", title.id).to_string()).await;
+    };
+
+    //let 
+
+    //op.play_file("sounds/tone/startup.ogg".to_string()).await;
+
+    //sleep_until(Instant::now() + Duration::from_secs(120)).await;
 
     op.fmstate.today().await.unwrap();
 
@@ -264,6 +309,6 @@ async fn main() {
     );
 
     op.fetch_tts_and_save(message).await.unwrap();
-    op.play_file("tts.mp3".to_string()).await;
+    op.play_file_next("tts.mp3".to_string()).await;
 
 }
