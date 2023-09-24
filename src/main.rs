@@ -107,20 +107,52 @@ impl AppState {
         Ok(())
     }
 
-    async fn play_uri(&self, uri: String) {
+    async fn play(&self) {
+        self.spk.play().await.unwrap();
+    }
+
+    async fn play_uri(&self, uri: String, play: bool) {
         let result = self.spk.action(
             AV_TRANSPORT,
             "SetAVTransportURI",
             args! {"InstanceID": "0", "CurrentURI": uri.as_str(), "CurrentURIMetaData": ""},
         ).await;
 
-        if result.is_ok() && (!self.spk.is_playing().await.unwrap_or(false)) {
+        if play && result.is_ok() && (!self.spk.is_playing().await.unwrap_or(false)) {
             self.spk.play().await.unwrap()
         }
     }
 
-    async fn get_duration(&self) -> Option<u32> {
-        return Some(0);
+    async fn fade_in(&self) {
+        let current_volume = self.spk.volume().await.unwrap();
+        self.spk.set_volume(0).await.unwrap();
+        while self.spk.set_volume_relative(3).await.unwrap_or(current_volume) < current_volume-3 {
+            sleep_until(Instant::now() + Duration::from_millis(500)).await;
+        }
+        self.spk.set_volume(current_volume).await.unwrap();
+    }
+
+    async fn fade_out(&self) {
+        let current_volume = self.spk.volume().await.unwrap();
+        while self.spk.set_volume_relative(-3).await.unwrap_or(1) > 3 {
+            sleep_until(Instant::now() + Duration::from_millis(500)).await;
+        }
+        self.spk.pause().await.unwrap();
+        self.spk.set_volume(current_volume).await.unwrap();
+    }
+
+    async fn skip_to(&self, seconds: u32) {
+        self.spk.skip_to(seconds).await.unwrap();
+    }
+
+    async fn skip_by(&self, seconds: i32) {
+        self.spk.skip_by(seconds).await.unwrap();
+    }
+
+    async fn wait_for_end(&self) {
+        while self.spk.is_playing().await.unwrap() {
+            sleep_until(Instant::now() + Duration::from_millis(500)).await;
+        }
     }
 
     async fn play_file(&self, file: String) {
@@ -135,80 +167,7 @@ impl AppState {
             self.spk.play().await.unwrap()
         }
     }
-
-    async fn play_file_next(&self, file: String) {
-        let uri = format!("{}{}", self.server, file).replace(" ", "%20");
-        let result = self.spk.action(
-            AV_TRANSPORT,
-            "SetNextAVTransportURI",
-            args! {"InstanceID": "0", "CurrentURI": uri.as_str(), "CurrentURIMetaData": ""},
-        ).await;
-
-        if result.is_ok() && (!self.spk.is_playing().await.unwrap_or(false)) {
-            self.spk.play().await.unwrap()
-        }
-    }
 }
-
-/*
-#[derive(Serialize, Deserialize)]
-struct ApiSpeaker {
-    ip: Ipv4Addr,
-    trackname: String,
-    trackduration: u32,
-    trackelapsed: u32,
-    volume: u16,
-}
-impl ApiSpeaker {
-    async fn from_spk(spk: &Speaker) -> Self {
-        let ip: Ipv4Addr = Ipv4Addr::from_str(spk.device().url().host().unwrap_or("0.0.0.0"))
-            .unwrap_or(Ipv4Addr::new(0, 0, 0, 0));
-        let mut trackname = "None".to_string();
-        let mut trackduration = 0;
-        let mut trackelapsed = 0;
-        if let Some(track) = spk.track().await.unwrap() {
-            trackname = format!(
-                "{} - {}",
-                track.track().creator().unwrap_or("unknown"),
-                track.track().title()
-            );
-            trackduration = track.duration();
-            trackelapsed = track.elapsed();
-        }
-        let volume = spk.volume().await.unwrap();
-
-        Self {
-            ip,
-            trackname,
-            trackduration,
-            trackelapsed,
-            volume,
-        }
-    }
-    async fn from_spks(spks: &Vec<Speaker>) -> Vec<Self> {
-        let mut r: Vec<Self> = Vec::new();
-        for e in spks.iter() {
-            r.push(Self::from_spk(e).await)
-        }
-        r
-    }
-
-    fn from_track(track: &Track, ip: Ipv4Addr) -> Self {
-        let trackname = format!(
-            "{} - {}",
-            track.creator().unwrap_or("unknown"),
-            track.title()
-        );
-        Self {
-            ip,
-            trackname,
-            trackduration: track.duration().unwrap_or(0),
-            trackelapsed: 0,
-            volume: 0,
-        }
-    }
-}
-*/
 
 async fn init<'a>(log_level: LevelFilter) -> AppState {
     Builder::new().filter(None, log_level).init();
@@ -279,26 +238,32 @@ async fn main() {
     log::info!("Initialized.");
     log::debug!("Connected to {:#?} Speaker", op.spk);
 
-    if let Some(title) = get_random_jellyfin_track(&op.jellyfin).await.unwrap_or(None) {
-        op.play_uri(format!("https://venture.zossennews.de/media/Audio/{}/stream.mp3", title.id).to_string()).await;
+    let track = get_random_jellyfin_track(&op.jellyfin).await.unwrap();//_or(None)
+
+    if let Some(title) = &track {
+        op.play_uri(format!("https://venture.zossennews.de/media/Audio/{}/stream.mp3", title.id).to_string(), true).await;
     };
 
-    //let 
+    op.fmstate.fetch().await.unwrap();
 
-    //op.play_file("sounds/tone/startup.ogg".to_string()).await;
-
-    //sleep_until(Instant::now() + Duration::from_secs(120)).await;
-
-    op.fmstate.today().await.unwrap();
-
-    let elements = op.fmstate.elements();
+    let elements = op.fmstate.get_today();
     let count = elements.len();
 
     let mut i: u8 = 0;
     let mut event_list = String::new();
     elements.iter().for_each(|e| {
         i+=1;
-        event_list.push_str(format!("Number {}: {} - {}.\n ", i, e.title(), e.description()).as_str())
+        event_list.push_str(format!("Number {}: {}.\n ", i, e.description()).as_str());
+        if e.location() != "" || e.timedelta().is_some() {
+            event_list.push_str("Taking place");
+            if e.location() != "" {
+                event_list.push_str(format!(" at {}", e.location()).as_str());
+            }
+            if e.timedelta().is_some() {
+                event_list.push_str(format!(" in {} minutes", e.timedelta().unwrap()).as_str());
+            }
+        }
+        event_list.push_str(".\n ");
     });
 
     let message = format!(
@@ -309,6 +274,21 @@ async fn main() {
     );
 
     op.fetch_tts_and_save(message).await.unwrap();
-    op.play_file_next("tts.mp3".to_string()).await;
+    sleep_until(Instant::now() + Duration::from_secs(120)).await;
+    //op.wait_for_end().await;
 
+    op.fade_out().await;
+
+    op.play_file("tts.mp3".to_string()).await;
+
+    /*
+    sleep_until(Instant::now() + Duration::from_millis(500)).await;
+    op.wait_for_end().await;
+
+    if let Some(title) = &track {
+        op.play_uri(format!("https://venture.zossennews.de/media/Audio/{}/stream.mp3?startTimeTicks=1200000000", title.id).to_string(), false).await;
+        op.play().await;
+        op.fade_in().await;
+    };
+    */
 }

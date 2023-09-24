@@ -1,7 +1,11 @@
 pub mod freemind_handler {
+    use cron::Schedule;
+    use chrono::Local;
     use reqwest::{Client, Response, header::HeaderValue};
     use serde::{Deserialize, Serialize};
+    use std::cmp::{min, Ordering};
     use std::fmt;
+    use std::str::FromStr;
     use quick_xml::de::from_str;
 
     #[derive(Debug, Clone, Serialize, Deserialize)]
@@ -73,7 +77,7 @@ pub mod freemind_handler {
         id: Vec<u16>,
     }
 
-    #[derive(Debug, Clone, Serialize, Deserialize)]
+    #[derive(Eq, PartialEq, Debug, Clone, Serialize, Deserialize)]
     struct AppElementTags {
         #[serde(rename = "tag")]
         tags: Vec<String>,
@@ -93,9 +97,17 @@ pub mod freemind_handler {
         }
     }
 
-    #[derive(Debug, Clone, Serialize, Deserialize)]
+    #[derive(Eq, PartialEq, Debug, Clone, Serialize, Deserialize)]
+    pub struct Preparation {
+        description: Option<String>,
+        time: Option<u32>,
+    }
+
+    #[derive(Eq, Debug, Clone, Serialize, Deserialize)]
     #[serde(rename = "entry")]
     pub struct AppElement {
+        #[serde(skip)]
+        takes_place_on: Option<u32>,
         #[serde(rename = "@id")]
         id: Option<u16>,
         #[serde(rename = "name")]
@@ -103,6 +115,21 @@ pub mod freemind_handler {
         description: String,
         due: Option<u32>,
         tags: Option<AppElementTags>,
+        repeats: Option<String>,
+        preparation: Option<Preparation>,
+        location: Option<String>,
+    }
+
+    impl PartialOrd for AppElement {
+        fn partial_cmp(&self, other: &Self) -> Option<Ordering> {
+            Some(self.cmp(other))
+        }
+    }
+
+    impl Ord for AppElement {
+        fn cmp(&self, other: &Self) -> Ordering {
+            self.takes_place_on.cmp(&other.takes_place_on)
+        }
     }
 
     impl PartialEq for AppElement {
@@ -115,11 +142,34 @@ pub mod freemind_handler {
     }
 
     impl AppElement {
-        pub fn title(&self) -> &str {
-            &self.title
+        pub fn location(&self) -> &str {
+            match &self.location {
+                Some(val) => &val,
+                None => &""
+            }
         }
+
         pub fn description(&self) -> &str {
             &self.description
+        }
+
+        pub fn timedelta(&self) -> Option<u32> {
+            if let Some(mut takes_place) = self.takes_place_on {
+                let now: u32 = chrono::offset::Local::now().naive_utc()
+                    .timestamp()
+                    .try_into()
+                    .unwrap_or(0);
+
+                if let Some(prepare) = &self.preparation {
+                    if let Some(prep) = prepare.time {
+                        takes_place += prep;
+                    }
+                }
+
+                Some((takes_place - now)/60)
+            } else {
+                None
+            }
         }
     }
 
@@ -213,6 +263,79 @@ pub mod freemind_handler {
             Ok(())
         }
 
+        /// Computes for every element the actual time in which it takes place
+        fn compute_takes_place(&mut self) {
+            self.elements
+                .iter_mut()
+                .filter(|e| e.takes_place_on.is_none())
+                .for_each(|e: &mut AppElement| {
+                    let mut due = e.due;
+
+                    if let Some(repeat) = &e.repeats {
+                        if let Ok(schedule) = Schedule::from_str(repeat) {
+                            if let Some(next_occasion) = schedule.upcoming(Local).next() {
+                                let next_due: u32 = next_occasion.naive_utc().timestamp().try_into().unwrap_or(u32::MAX);
+                                due = Some(min(due.unwrap_or(u32::MAX), next_due));
+                            };
+                        }
+                    }
+
+                    if due.is_some() {
+                        if let Some(prep) = &e.preparation {
+                            if let Some(delta) = prep.time {
+                                due = Some(due.unwrap() - delta*60);
+                            }
+                        }
+                    }
+                    e.takes_place_on = due;
+                });
+        }
+
+        /// Parses the available information and returns all Elements that take place today
+        /// and sorts them when they occur
+        pub fn get_today(&mut self) -> Vec<&AppElement> {
+            let mut result: Vec<&AppElement> = Vec::new();
+
+            let now: chrono::DateTime<Local> = chrono::offset::Local::now();
+
+            let today_start: u32 = now
+                .date_naive()
+                .and_hms_opt(0,0,0)
+                .unwrap()
+                .and_local_timezone(Local)
+                .unwrap()
+                .naive_utc()
+                .timestamp()
+                .try_into()
+                .unwrap_or(0);
+            let today_end: u32 = now
+                .date_naive()
+                .and_hms_opt(23, 59, 59)
+                .unwrap()
+                .and_local_timezone(Local)
+                .unwrap()
+                .naive_utc()
+                .timestamp()
+                .try_into()
+                .unwrap_or(u32::MAX);
+
+            self.compute_takes_place();
+
+            result = self.elements()
+                .iter()
+                .filter(|e| e.takes_place_on.is_some())
+                .filter(|e| {
+                    e.takes_place_on.unwrap_or(0) >= today_start &&
+                    e.takes_place_on.unwrap_or(0) <= today_end
+                })
+                .collect();
+
+            result.sort();
+
+            return result;
+        }
+
+        /*
         /// Fetches all Entries due today
         pub async fn today(&mut self) -> Result<(), reqwest::Error> {
             let res: Response = self.call("/xml/due/today", "".to_string()).await?;
@@ -229,6 +352,7 @@ pub mod freemind_handler {
 
             Ok(())
         }
+        */
 
 
     }

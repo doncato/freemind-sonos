@@ -62,7 +62,9 @@ pub mod music {
         pub id: String,
         #[serde(rename = "AlbumArtist")]
         pub artist: String,
-        pub album: String
+        pub album: Option<String>,
+        #[serde(rename = "RunTimeTicks")]
+        pub ticks: u64
     }
 
     impl fmt::Display for Title {
