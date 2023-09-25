@@ -32,10 +32,10 @@ const AV_TRANSPORT: &URN = &URN::service("schemas-upnp-org", "AVTransport", 1);
 #[derive(Serialize, Deserialize)]
 struct Config {
     username: String,
-    timezone: i8,
     local_server: String,
     path: PathBuf,
     tts_api_key: String,
+    exec_inverval: u16,
     freemind: FreemindConfig,
     jellyfin: JellyfinConfig,
     speaker: SpeakerBox,
@@ -44,10 +44,10 @@ impl ::std::default::Default for Config {
     fn default() -> Self {
         Self {
             username: "doncato".to_string(),
-            timezone: 2,
             local_server: "http://192.168.0.1/media".to_string(),
             path: PathBuf::from("./media"),
             tts_api_key: "YOUR TTS API KEY".to_string(),
+            exec_inverval: 5,
             freemind: FreemindConfig::default(),
             jellyfin: JellyfinConfig::default(),
             speaker: SpeakerBox::default(),
@@ -82,17 +82,28 @@ struct AppState {
     path: PathBuf,
     spk: Speaker,
     tts_api_key: String,
+    exec_interval: u16,
     fmstate: FreemindState,
     jellyfin: JellyfinConfig,
 }
 impl AppState {
-    fn new(username: String, server: String, path: PathBuf, spk: Speaker, tts_api_key: String, fmconf: FreemindConfig, jellyfin: JellyfinConfig) -> Self {
+    fn new(
+        username: String,
+        server: String,
+        path: PathBuf,
+        spk: Speaker,
+        tts_api_key: String,
+        exec_interval: u16,
+        fmconf: FreemindConfig,
+        jellyfin: JellyfinConfig
+    ) -> Self {
         Self {
             username,
             server,
             path,
             spk,
             tts_api_key,
+            exec_interval,
             fmstate: FreemindState::new(fmconf),
             jellyfin,
         }
@@ -211,6 +222,7 @@ async fn init<'a>(log_level: LevelFilter) -> AppState {
         path.to_path_buf(),
         cfg.to_speaker().await.unwrap(),
         cfg.tts_api_key,
+        cfg.exec_inverval,
         cfg.freemind,
         cfg.jellyfin,
     )
@@ -237,6 +249,13 @@ async fn main() {
     let mut op: AppState = init(llvl).await;
     log::info!("Initialized.");
     log::debug!("Connected to {:#?} Speaker", op.spk);
+    
+    op.fmstate.fetch().await.unwrap();
+
+    if !op.fmstate.needs_trigger(op.exec_interval) {
+        log::info!("No events instructed to trigger");
+        return;
+    };
 
     let track = get_random_jellyfin_track(&op.jellyfin).await.unwrap();//_or(None)
 
@@ -244,7 +263,6 @@ async fn main() {
         op.play_uri(format!("https://venture.zossennews.de/media/Audio/{}/stream.mp3", title.id).to_string(), true).await;
     };
 
-    op.fmstate.fetch().await.unwrap();
 
     let elements = op.fmstate.get_today();
     let count = elements.len();
@@ -254,13 +272,16 @@ async fn main() {
     elements.iter().for_each(|e| {
         i+=1;
         event_list.push_str(format!("Number {}: {}.\n ", i, e.description()).as_str());
-        if e.location() != "" || e.timedelta().is_some() {
+
+        let timepoint = e.timepoint();
+
+        if e.location() != "" || timepoint.is_some() {
             event_list.push_str("Taking place");
             if e.location() != "" {
                 event_list.push_str(format!(" at {}", e.location()).as_str());
             }
-            if e.timedelta().is_some() {
-                event_list.push_str(format!(" in {} minutes", e.timedelta().unwrap()).as_str());
+            if timepoint.is_some() {
+                event_list.push_str(format!(" at {}", timepoint.unwrap()).as_str());
             }
         }
         event_list.push_str(".\n ");

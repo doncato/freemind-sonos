@@ -1,6 +1,6 @@
 pub mod freemind_handler {
     use cron::Schedule;
-    use chrono::Local;
+    use chrono::{Local, TimeZone};
     use reqwest::{Client, Response, header::HeaderValue};
     use serde::{Deserialize, Serialize};
     use std::cmp::{min, Ordering};
@@ -118,6 +118,7 @@ pub mod freemind_handler {
         repeats: Option<String>,
         preparation: Option<Preparation>,
         location: Option<String>,
+        alert: Option<String>,
     }
 
     impl PartialOrd for AppElement {
@@ -153,23 +154,28 @@ pub mod freemind_handler {
             &self.description
         }
 
-        pub fn timedelta(&self) -> Option<u32> {
+        pub fn timepoint(&self) -> Option<String> {
             if let Some(mut takes_place) = self.takes_place_on {
-                let now: u32 = chrono::offset::Local::now().naive_utc()
-                    .timestamp()
-                    .try_into()
-                    .unwrap_or(0);
-
                 if let Some(prepare) = &self.preparation {
                     if let Some(prep) = prepare.time {
                         takes_place += prep;
                     }
                 }
 
-                Some((takes_place - now)/60)
-            } else {
-                None
+                /*
+                return Some(format!("{}", chrono::Utc.timestamp_opt(takes_place as i64, 0)
+                    .unwrap()
+                    .with_timezone(&Local)
+                    .format("%H:%M")
+                ));
+                */
+                return match chrono::Utc.timestamp_opt(takes_place as i64, 0) {
+                    chrono::LocalResult::None => None,
+                    chrono::LocalResult::Single(val) => Some(val.with_timezone(&chrono::Local).format("%H:%M").to_string()),
+                    chrono::LocalResult::Ambiguous(val, _) => Some(val.with_timezone(&chrono::Local).format("%H:%M").to_string()),
+                };
             }
+            None
         }
     }
 
@@ -274,11 +280,11 @@ pub mod freemind_handler {
                     if let Some(repeat) = &e.repeats {
                         if let Ok(schedule) = Schedule::from_str(repeat) {
                             if let Some(next_occasion) = schedule.upcoming(Local).next() {
-                                let next_due: u32 = next_occasion.naive_utc().timestamp().try_into().unwrap_or(u32::MAX);
+                                let next_due: u32 = next_occasion.naive_utc().and_utc().timestamp().try_into().unwrap_or(u32::MAX);
                                 due = Some(min(due.unwrap_or(u32::MAX), next_due));
                             };
-                        }
-                    }
+                        };
+                    };
 
                     if due.is_some() {
                         if let Some(prep) = &e.preparation {
@@ -291,6 +297,27 @@ pub mod freemind_handler {
                 });
         }
 
+        /// Determines whether an alert should be triggered or not.
+        pub fn needs_trigger(&mut self, interval: u16) -> bool {
+            let now: u32 = chrono::offset::Local::now()
+                .naive_utc()
+                .timestamp()
+                .try_into()
+                .unwrap_or(0);
+
+            self.compute_takes_place();
+
+            self.elements()
+                .iter()
+                .filter(|e| e.takes_place_on.is_some() && e.alert.is_some())
+                .filter(|e| {
+                    e.takes_place_on.unwrap_or(0) >= now &&
+                    e.takes_place_on.unwrap_or(0) < (now + (interval*60) as u32)
+                })
+                .next()
+                .is_some()
+        }
+
         /// Parses the available information and returns all Elements that take place today
         /// and sorts them when they occur
         pub fn get_today(&mut self) -> Vec<&AppElement> {
@@ -299,12 +326,13 @@ pub mod freemind_handler {
             let now: chrono::DateTime<Local> = chrono::offset::Local::now();
 
             let today_start: u32 = now
-                .date_naive()
-                .and_hms_opt(0,0,0)
-                .unwrap()
-                .and_local_timezone(Local)
-                .unwrap()
+                //.date_naive()
+                //.and_hms_opt(0,0,0)
+                //.unwrap()
+                //.and_local_timezone(Local)
+                //.unwrap()
                 .naive_utc()
+                .and_utc()
                 .timestamp()
                 .try_into()
                 .unwrap_or(0);
@@ -315,6 +343,7 @@ pub mod freemind_handler {
                 .and_local_timezone(Local)
                 .unwrap()
                 .naive_utc()
+                .and_utc()
                 .timestamp()
                 .try_into()
                 .unwrap_or(u32::MAX);
