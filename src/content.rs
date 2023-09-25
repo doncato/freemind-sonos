@@ -6,11 +6,12 @@ pub mod speech {
 
 
     pub async fn get_speech_voicerss(text: &str, tts_api_key: &str) -> Result<Bytes, reqwest::Error> {
+        let client = reqwest::Client::builder().use_rustls_tls().build()?;
         let language = "en-gb";
-        return reqwest::get(format!(
+        return client.get(format!(
             "http://api.voicerss.org/?key={}&hl={}&c=MP3&f=48khz_16bit_stereo&v=Nancy&src={}",
             tts_api_key, language, text
-        ))
+        )).send()
         .await?
         .bytes()
         .await;
@@ -99,7 +100,7 @@ pub mod music {
     }
 
     pub async fn get_random_jellyfin_track(config: &JellyfinConfig) -> Result<Option<Title>, reqwest::Error> {
-        let client: reqwest::Client = reqwest::Client::new();
+        let client: reqwest::Client = reqwest::Client::builder().use_rustls_tls().build()?;
         let playlist: Playlist = client.get(
             format!(
                 "{}/Playlists/{}/Items?api_key={}&userId={}",

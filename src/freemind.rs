@@ -203,6 +203,7 @@ pub mod freemind_handler {
             if self.client.is_none() {
                 self.client = Some(
                     Client::builder()
+                        .use_rustls_tls()
                         .user_agent("Freemind Sonos CLI")
                         .build().unwrap()
                 );
