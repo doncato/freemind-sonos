@@ -158,7 +158,7 @@ pub mod freemind_handler {
             if let Some(mut takes_place) = self.takes_place_on {
                 if let Some(prepare) = &self.preparation {
                     if let Some(prep) = prepare.time {
-                        takes_place += prep;
+                        takes_place += prep*60;
                     }
                 }
 
@@ -274,7 +274,6 @@ pub mod freemind_handler {
         fn compute_takes_place(&mut self) {
             self.elements
                 .iter_mut()
-                .filter(|e| e.takes_place_on.is_none())
                 .for_each(|e: &mut AppElement| {
                     let mut due = e.due;
 
