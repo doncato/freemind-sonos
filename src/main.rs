@@ -137,6 +137,7 @@ impl AppState {
     async fn fade_in(&self) {
         let current_volume = self.spk.volume().await.unwrap();
         self.spk.set_volume(0).await.unwrap();
+        self.spk.play().await.unwrap();
         while self.spk.set_volume_relative(3).await.unwrap_or(current_volume) < current_volume-3 {
             sleep_until(Instant::now() + Duration::from_millis(500)).await;
         }
@@ -150,14 +151,6 @@ impl AppState {
         }
         self.spk.pause().await.unwrap();
         self.spk.set_volume(current_volume).await.unwrap();
-    }
-
-    async fn skip_to(&self, seconds: u32) {
-        self.spk.skip_to(seconds).await.unwrap();
-    }
-
-    async fn skip_by(&self, seconds: i32) {
-        self.spk.skip_by(seconds).await.unwrap();
     }
 
     async fn wait_for_end(&self) {
@@ -260,7 +253,8 @@ async fn main() {
     let track = get_random_jellyfin_track(&op.jellyfin).await.unwrap();//_or(None)
 
     if let Some(title) = &track {
-        op.play_uri(format!("https://venture.zossennews.de/media/Audio/{}/stream.mp3", title.id).to_string(), true).await;
+        op.play_uri(format!("https://venture.zossennews.de/media/Audio/{}/stream.mp3", title.id).to_string(), false).await;
+        op.fade_in().await
     };
 
 
