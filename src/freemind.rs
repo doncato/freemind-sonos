@@ -300,7 +300,7 @@ pub mod freemind_handler {
         /// Parses the available information and returns all Elements that take place today
         /// and sorts them when they occur
         pub fn get_today(&mut self) -> Vec<&AppElement> {
-            let mut result: Vec<&AppElement> = Vec::new();
+            let mut result: Vec<&AppElement>;
 
             let now: chrono::DateTime<Local> = chrono::offset::Local::now();
 
