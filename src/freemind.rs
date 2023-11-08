@@ -78,26 +78,6 @@ pub mod freemind_handler {
     }
 
     #[derive(Eq, PartialEq, Debug, Clone, Serialize, Deserialize)]
-    struct AppElementTags {
-        #[serde(rename = "tag")]
-        tags: Vec<String>,
-    }
-
-    impl AppElementTags {
-        pub fn new(tags: Vec<String>) -> Self {
-            Self {
-                tags
-            }
-        }
-
-        pub fn empty() -> Self {
-            Self {
-                tags: Vec::new(),
-            }
-        }
-    }
-
-    #[derive(Eq, PartialEq, Debug, Clone, Serialize, Deserialize)]
     pub struct Preparation {
         description: Option<String>,
         time: Option<u32>,
@@ -114,7 +94,6 @@ pub mod freemind_handler {
         title: String,
         description: String,
         due: Option<u32>,
-        tags: Option<AppElementTags>,
         repeats: Option<String>,
         preparation: Option<Preparation>,
         location: Option<String>,
